@@ -16,7 +16,7 @@ import {
 import { db, storage } from '../firebase';
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
 import { UserProfile, Song, Follow } from '../types';
-import { Play, CheckCircle, Plus, Trash2, Mail, ExternalLink, MessageCircle, Settings, Upload, Music as MusicIcon, Loader2 } from 'lucide-react';
+import { Play, CheckCircle, Plus, Trash2, Mail, ExternalLink, MessageCircle, Settings, Upload, Music as MusicIcon, Loader2, Camera } from 'lucide-react';
 import EditProfileModal from './EditProfileModal';
 
 interface ArtistProfileProps {
@@ -36,6 +36,7 @@ export default function ArtistProfile({ artistId, currentUser, onPlay }: ArtistP
   // Upload Form State
   const [newSongTitle, setNewSongTitle] = useState('');
   const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [coverFile, setCoverFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadError, setUploadError] = useState('');
 
@@ -102,51 +103,64 @@ export default function ArtistProfile({ artistId, currentUser, onPlay }: ArtistP
     setUploadProgress(0);
 
     try {
-      const formData = new FormData();
-      formData.append('audio', audioFile);
+      // Helper function to upload a single file
+      const uploadFile = async (file: File, fieldName: string): Promise<string> => {
+        return new Promise((resolve, reject) => {
+          const formData = new FormData();
+          formData.append(fieldName, file);
 
-      const xhr = new XMLHttpRequest();
-      
-      xhr.upload.addEventListener('progress', (event) => {
-        if (event.lengthComputable) {
-          const progress = (event.loaded / event.total) * 100;
-          setUploadProgress(progress);
-        }
-      });
-
-      xhr.onload = async () => {
-        if (xhr.status === 200) {
-          const response = JSON.parse(xhr.responseText);
-          const downloadURL = response.url;
-
-          // Save metadata to Firestore
-          await addDoc(collection(db, 'songs'), {
-            title: newSongTitle,
-            artistId: currentUser.uid,
-            artistName: currentUser.displayName,
-            audioUrl: downloadURL,
-            playsCount: 0,
-            coverUrl: `https://picsum.photos/seed/${Math.random()}/400/400`,
-            createdAt: serverTimestamp()
+          const xhr = new XMLHttpRequest();
+          xhr.upload.addEventListener('progress', (event) => {
+            if (event.lengthComputable && fieldName === 'audio') {
+              const progress = (event.loaded / event.total) * 100;
+              setUploadProgress(progress);
+            }
           });
-          
-          setNewSongTitle('');
-          setAudioFile(null);
-          setUploadProgress(null);
-          setShowUpload(false);
-        } else {
-          setUploadError("Error al subir el archivo al servidor.");
-          setUploadProgress(null);
+
+          xhr.onload = () => {
+            if (xhr.status === 200) {
+              const response = JSON.parse(xhr.responseText);
+              resolve(response.url);
+            } else {
+              reject(new Error(`Error al subir ${fieldName}`));
+            }
+          };
+
+          xhr.onerror = () => reject(new Error(`Error de conexión al subir ${fieldName}`));
+          xhr.open('POST', `/api/upload/${fieldName}`);
+          xhr.send(formData);
+        });
+      };
+
+      // 1. Upload audio
+      const audioUrl = await uploadFile(audioFile, 'audio');
+      
+      // 2. Upload cover if exists
+      let coverUrl = `https://picsum.photos/seed/${Math.random()}/400/400`;
+      if (coverFile) {
+        try {
+          coverUrl = await uploadFile(coverFile, 'cover');
+        } catch (err) {
+          console.warn("Cover upload failed, using fallback:", err);
         }
-      };
+      }
 
-      xhr.onerror = () => {
-        setUploadError("Error de conexión con el servidor.");
-        setUploadProgress(null);
-      };
-
-      xhr.open('POST', '/api/upload');
-      xhr.send(formData);
+      // 3. Save metadata to Firestore
+      await addDoc(collection(db, 'songs'), {
+        title: newSongTitle,
+        artistId: currentUser.uid,
+        artistName: currentUser.displayName,
+        audioUrl,
+        playsCount: 0,
+        coverUrl,
+        createdAt: serverTimestamp()
+      });
+      
+      setNewSongTitle('');
+      setAudioFile(null);
+      setCoverFile(null);
+      setUploadProgress(null);
+      setShowUpload(false);
 
     } catch (err: any) {
       setUploadError(err.message);
@@ -364,8 +378,42 @@ export default function ArtistProfile({ artistId, currentUser, onPlay }: ArtistP
                     ) : (
                       <div className="flex flex-col items-center gap-2">
                         <Upload className="text-zinc-500 group-hover:text-green-500 transition-colors" size={32} />
-                        <span className="text-sm text-zinc-400">Haz clic para seleccionar archivo</span>
-                        <span className="text-[10px] text-zinc-600">MP3, WAV, FLAC (Máx 10MB)</span>
+                        <span className="text-sm text-zinc-400">Seleccionar música</span>
+                        <span className="text-[10px] text-zinc-600 font-medium">MP3, WAV, FLAC</span>
+                        <p className="text-[9px] text-zinc-500 mt-1 max-w-[200px] text-center">
+                          Nota: En entornos como Vercel, el límite es de 4.5MB. En local hasta 20MB.
+                        </p>
+                      </div>
+                    )}
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-zinc-400 mb-2">Portada de la canción (Opcional)</label>
+                <div className="relative">
+                  <input 
+                    type="file" 
+                    accept="image/*"
+                    onChange={(e) => setCoverFile(e.target.files?.[0] || null)}
+                    className="hidden"
+                    id="cover-upload"
+                    disabled={uploadProgress !== null}
+                  />
+                  <label 
+                    htmlFor="cover-upload"
+                    className={`w-full flex flex-col items-center justify-center border-2 border-dashed border-zinc-700 rounded-xl p-6 cursor-pointer hover:border-blue-500 transition-all group
+                      ${coverFile ? 'bg-zinc-800 border-blue-500' : 'bg-transparent'}`}
+                  >
+                    {coverFile ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <Camera className="text-blue-500" size={24} />
+                        <span className="text-xs font-medium text-white">{coverFile.name}</span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-1">
+                        <Camera className="text-zinc-500 group-hover:text-blue-500 transition-colors" size={24} />
+                        <span className="text-xs text-zinc-400">Seleccionar portada</span>
                       </div>
                     )}
                   </label>

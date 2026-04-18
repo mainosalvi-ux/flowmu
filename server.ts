@@ -33,13 +33,22 @@ async function startServer() {
     limits: { fileSize: 20 * 1024 * 1024 } // 20MB limit
   });
 
-  // API Route for file upload
-  app.post('/api/upload', upload.single('audio'), (req, res) => {
+  // API Route for audio upload
+  app.post('/api/upload/audio', upload.single('audio'), (req, res) => {
     const file = (req as any).file;
     if (!file) {
-      return res.status(400).json({ error: 'No se subió ningún archivo' });
+      return res.status(400).json({ error: 'No se subió ningún archivo de audio' });
     }
-    // Return the public URL for the file
+    const fileUrl = `/uploads/${file.filename}`;
+    res.json({ url: fileUrl });
+  });
+
+  // API Route for cover upload
+  app.post('/api/upload/cover', upload.single('cover'), (req, res) => {
+    const file = (req as any).file;
+    if (!file) {
+      return res.status(400).json({ error: 'No se subió ninguna imagen' });
+    }
     const fileUrl = `/uploads/${file.filename}`;
     res.json({ url: fileUrl });
   });
