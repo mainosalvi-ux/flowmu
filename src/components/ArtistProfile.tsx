@@ -14,9 +14,9 @@ import {
   increment
 } from 'firebase/firestore';
 import { db, storage } from '../firebase';
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytesResumable, getDownloadURL, uploadBytes } from 'firebase/storage';
 import { UserProfile, Song, Follow } from '../types';
-import { Play, CheckCircle, Plus, Trash2, Mail, ExternalLink, MessageCircle, Settings, Upload, Music as MusicIcon, Loader2, Camera } from 'lucide-react';
+import { Play, CheckCircle, Plus, Trash2, Mail, ExternalLink, MessageCircle, Settings, Upload, Music as MusicIcon, Loader2, Camera, AlertCircle, Info } from 'lucide-react';
 import EditProfileModal from './EditProfileModal';
 
 interface ArtistProfileProps {
@@ -103,74 +103,55 @@ export default function ArtistProfile({ artistId, currentUser, onPlay }: ArtistP
     setUploadProgress(0);
 
     try {
-      // Helper function to upload a single file
-      const uploadFile = async (file: File, fieldName: string): Promise<string> => {
-        return new Promise((resolve, reject) => {
-          const formData = new FormData();
-          formData.append(fieldName, file);
-
-          const xhr = new XMLHttpRequest();
-          xhr.upload.addEventListener('progress', (event) => {
-            if (event.lengthComputable && fieldName === 'audio') {
-              const progress = (event.loaded / event.total) * 100;
-              setUploadProgress(progress);
-            }
-          });
-
-          xhr.onload = async () => {
-            if (xhr.status === 200) {
-              try {
-                const response = JSON.parse(xhr.responseText);
-                resolve(response.url);
-              } catch (e) {
-                reject(new Error("Error al procesar la respuesta del servidor"));
-              }
-            } else {
-              let errorMsg = `Error ${xhr.status}`;
-              try {
-                const res = JSON.parse(xhr.responseText);
-                errorMsg = res.error || errorMsg;
-              } catch(e) {}
-              reject(new Error(errorMsg));
-            }
-          };
-
-          xhr.onerror = () => reject(new Error(`Error de conexión al subir ${fieldName}`));
-          xhr.open('POST', `/api/upload/${fieldName}`);
-          xhr.send(formData);
-        });
-      };
-
-      // 1. Upload audio
-      const audioUrl = await uploadFile(audioFile, 'audio');
-      
-      // 2. Upload cover if exists
+      // 1. Upload Cover if exists
       let coverUrl = `https://picsum.photos/seed/${Math.random()}/400/400`;
       if (coverFile) {
-        try {
-          coverUrl = await uploadFile(coverFile, 'cover');
-        } catch (err) {
-          console.warn("Cover upload failed, using fallback:", err);
-        }
+        const coverRef = ref(storage, `covers/${currentUser.uid}/${Date.now()}_${coverFile.name}`);
+        await uploadBytes(coverRef, coverFile);
+        coverUrl = await getDownloadURL(coverRef);
       }
 
-      // 3. Save metadata to Firestore
-      await addDoc(collection(db, 'songs'), {
-        title: newSongTitle,
-        artistId: currentUser.uid,
-        artistName: currentUser.displayName,
-        audioUrl,
-        playsCount: 0,
-        coverUrl,
-        createdAt: serverTimestamp()
-      });
-      
-      setNewSongTitle('');
-      setAudioFile(null);
-      setCoverFile(null);
-      setUploadProgress(null);
-      setShowUpload(false);
+      // 2. Upload Audio
+      const audioRef = ref(storage, `songs/${currentUser.uid}/${Date.now()}_${audioFile.name}`);
+      const uploadTask = uploadBytesResumable(audioRef, audioFile);
 
+      uploadTask.on('state_changed', 
+        (snapshot) => {
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+          setUploadProgress(progress);
+        }, 
+        (error: any) => {
+          console.error("Upload error:", error);
+          if (error.code === 'storage/unauthorized') {
+            setUploadError("Error: No tienes permiso para subir. Revisa las reglas de Storage en Firebase.");
+          } else if (error.code === 'storage/project-not-found') {
+             setUploadError("Error: No se encontró el proyecto de Firebase Storage.");
+          } else {
+            setUploadError(`Error de subida: ${error.message}. Si dice 'Billing' o 'Plan', lee la guía de abajo.`);
+          }
+          setUploadProgress(null);
+        }, 
+        async () => {
+          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+
+          // 3. Save metadata to Firestore
+          await addDoc(collection(db, 'songs'), {
+            title: newSongTitle,
+            artistId: currentUser.uid,
+            artistName: currentUser.displayName,
+            audioUrl: downloadURL,
+            playsCount: 0,
+            coverUrl,
+            createdAt: serverTimestamp()
+          });
+          
+          setNewSongTitle('');
+          setAudioFile(null);
+          setCoverFile(null);
+          setUploadProgress(null);
+          setShowUpload(false);
+        }
+      );
     } catch (err: any) {
       setUploadError(err.message);
       setUploadProgress(null);
@@ -444,29 +425,50 @@ export default function ArtistProfile({ artistId, currentUser, onPlay }: ArtistP
                 </div>
               )}
 
-              <div className="flex gap-4 pt-4">
-                <button 
-                  type="submit"
-                  disabled={uploadProgress !== null || !audioFile}
-                  className="flex-1 bg-green-500 text-black font-bold py-3 rounded-full hover:scale-105 transition-transform disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {uploadProgress !== null ? <Loader2 className="animate-spin" size={20} /> : null}
-                  {uploadProgress !== null ? 'Subiendo...' : 'Publicar Ahora'}
-                </button>
-                <button 
-                  type="button"
-                  onClick={() => {
-                    setShowUpload(false);
-                    setUploadProgress(null);
-                    setAudioFile(null);
-                  }}
-                  className="flex-1 bg-zinc-800 text-white font-bold py-3 rounded-full hover:bg-zinc-700 transition-colors"
-                >
-                  Cancelar
-                </button>
-              </div>
-            </form>
-          </div>
+                <div className="flex gap-4 pt-4">
+                  <button 
+                    type="submit"
+                    disabled={uploadProgress !== null || !audioFile}
+                    className="flex-1 bg-green-500 text-black font-bold py-3 rounded-full hover:scale-105 transition-transform disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {uploadProgress !== null ? <Loader2 className="animate-spin" size={20} /> : null}
+                    {uploadProgress !== null ? 'Subiendo...' : 'Publicar Ahora'}
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      setShowUpload(false);
+                      setUploadProgress(null);
+                      setAudioFile(null);
+                    }}
+                    className="flex-1 bg-zinc-800 text-white font-bold py-3 rounded-full hover:bg-zinc-700 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+
+                {/* Billing/Plan Guide */}
+                <div className="mt-8 p-4 bg-zinc-800/50 rounded-xl border border-zinc-700 space-y-3">
+                  <div className="flex items-center gap-2 text-zinc-300 font-bold text-xs uppercase">
+                    <AlertCircle size={14} className="text-yellow-500" />
+                    ¿Tienes error al subir? (Plan Error)
+                  </div>
+                  <p className="text-[10px] text-zinc-500 leading-normal">
+                    Firebase Storage es **Gratis (5GB)**, pero requiere activación manual. Si ves un error de "Plan" o "Billing":
+                  </p>
+                  <ol className="text-[10px] text-zinc-400 space-y-1 list-decimal ml-4">
+                    <li>Ve a la pestaña **Storage** en tu consola de Firebase.</li>
+                    <li>Haz clic en **"Empezar"** (Default Bucket).</li>
+                    <li>Elige el plan **Spark (Gratis)** si te lo pide.</li>
+                    <li>En **Rules**, pega: <code className="text-[9px] bg-black p-1 rounded">allow read, write: if request.auth != null;</code></li>
+                  </ol>
+                  <div className="flex items-center gap-1 text-[9px] text-green-500 font-medium">
+                    <Info size={10} />
+                    Esto habilitará las subidas directas en Vercel y Netlify.
+                  </div>
+                </div>
+              </form>
+            </div>
         </div>
       )}
 
