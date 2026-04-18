@@ -12,57 +12,45 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Ensure uploads directory exists
+  // Ensure and expose uploads directory
   const uploadsDir = path.join(__dirname, 'public', 'uploads');
   if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
   }
 
-  // Configure Multer for local storage
+  // Multer config for both audio and cover images
   const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-      cb(null, uploadsDir);
-    },
+    destination: (req, file, cb) => cb(null, uploadsDir),
     filename: (req, file, cb) => {
-      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-      cb(null, uniqueSuffix + path.extname(file.originalname));
+      const suffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+      cb(null, `${suffix}-${file.fieldname}${path.extname(file.originalname)}`);
     }
   });
+
   const upload = multer({ 
     storage,
-    limits: { fileSize: 20 * 1024 * 1024 } // 20MB limit
+    limits: { fileSize: 25 * 1024 * 1024 } // 25MB total
   });
 
-  // API Route for audio upload
-  app.post('/api/upload/audio', upload.single('audio'), (req, res) => {
-    console.log("Subida de audio recibida...");
-    const file = (req as any).file;
-    if (!file) {
-      console.error("Error: No se recibió archivo de audio");
-      return res.status(400).json({ error: 'No se subió ningún archivo de audio' });
+  // Dual purpose upload endpoint
+  app.post('/api/upload', upload.fields([{ name: 'audio', maxCount: 1 }, { name: 'cover', maxCount: 1 }]), (req, res) => {
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+    
+    if (!files?.audio?.[0]) {
+      return res.status(400).json({ error: 'Falta el archivo de audio' });
     }
-    const fileUrl = `/uploads/${file.filename}`;
-    console.log("Audio guardado en:", fileUrl);
-    res.json({ url: fileUrl });
+
+    const response = {
+      audioUrl: `/uploads/${files.audio[0].filename}`,
+      coverUrl: files.cover?.[0] ? `/uploads/${files.cover[0].filename}` : null
+    };
+
+    console.log("Upload completed:", response);
+    res.json(response);
   });
 
-  // API Route for cover upload
-  app.post('/api/upload/cover', upload.single('cover'), (req, res) => {
-    console.log("Subida de portada recibida...");
-    const file = (req as any).file;
-    if (!file) {
-      console.error("Error: No se recibió imagen");
-      return res.status(400).json({ error: 'No se subió ninguna imagen' });
-    }
-    const fileUrl = `/uploads/${file.filename}`;
-    console.log("Portada guardada en:", fileUrl);
-    res.json({ url: fileUrl });
-  });
-
-  // Static serving of uploads
   app.use('/uploads', express.static(uploadsDir));
 
-  // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -72,14 +60,12 @@ async function startServer() {
   } else {
     const distPath = path.join(__dirname, 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-    console.log(`Local uploads directory: ${uploadsDir}`);
+    console.log(`Server running at http://localhost:${PORT}`);
+    console.log(`Local uploads monitored at: ${uploadsDir}`);
   });
 }
 

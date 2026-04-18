@@ -103,55 +103,60 @@ export default function ArtistProfile({ artistId, currentUser, onPlay }: ArtistP
     setUploadProgress(0);
 
     try {
-      // 1. Upload Cover if exists
-      let coverUrl = `https://picsum.photos/seed/${Math.random()}/400/400`;
+      const formData = new FormData();
+      formData.append('audio', audioFile);
       if (coverFile) {
-        const coverRef = ref(storage, `covers/${currentUser.uid}/${Date.now()}_${coverFile.name}`);
-        await uploadBytes(coverRef, coverFile);
-        coverUrl = await getDownloadURL(coverRef);
+        formData.append('cover', coverFile);
       }
 
-      // 2. Upload Audio
-      const audioRef = ref(storage, `songs/${currentUser.uid}/${Date.now()}_${audioFile.name}`);
-      const uploadTask = uploadBytesResumable(audioRef, audioFile);
-
-      uploadTask.on('state_changed', 
-        (snapshot) => {
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+      const xhr = new XMLHttpRequest();
+      
+      xhr.upload.addEventListener('progress', (event) => {
+        if (event.lengthComputable) {
+          const progress = (event.loaded / event.total) * 100;
           setUploadProgress(progress);
-        }, 
-        (error: any) => {
-          console.error("Upload error:", error);
-          if (error.code === 'storage/unauthorized') {
-            setUploadError("Error: No tienes permiso para subir. Revisa las reglas de Storage en Firebase.");
-          } else if (error.code === 'storage/project-not-found') {
-             setUploadError("Error: No se encontró el proyecto de Firebase Storage.");
-          } else {
-            setUploadError(`Error de subida: ${error.message}. Si dice 'Billing' o 'Plan', lee la guía de abajo.`);
-          }
-          setUploadProgress(null);
-        }, 
-        async () => {
-          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-
-          // 3. Save metadata to Firestore
-          await addDoc(collection(db, 'songs'), {
-            title: newSongTitle,
-            artistId: currentUser.uid,
-            artistName: currentUser.displayName,
-            audioUrl: downloadURL,
-            playsCount: 0,
-            coverUrl,
-            createdAt: serverTimestamp()
-          });
-          
-          setNewSongTitle('');
-          setAudioFile(null);
-          setCoverFile(null);
-          setUploadProgress(null);
-          setShowUpload(false);
         }
-      );
+      });
+
+      xhr.onload = async () => {
+        if (xhr.status === 200) {
+          try {
+            const response = JSON.parse(xhr.responseText);
+            
+            // 3. Save metadata to Firestore
+            await addDoc(collection(db, 'songs'), {
+              title: newSongTitle,
+              artistId: currentUser.uid,
+              artistName: currentUser.displayName,
+              audioUrl: response.audioUrl,
+              playsCount: 0,
+              coverUrl: response.coverUrl || `https://picsum.photos/seed/${Math.random()}/400/400`,
+              createdAt: serverTimestamp()
+            });
+            
+            setNewSongTitle('');
+            setAudioFile(null);
+            setCoverFile(null);
+            setUploadProgress(null);
+            setShowUpload(false);
+          } catch (e) {
+            setUploadError("Error guardando la información.");
+            setUploadProgress(null);
+          }
+        } else {
+          setUploadError("Error en el servidor. Inténtalo de nuevo.");
+          setUploadProgress(null);
+        }
+      };
+
+      xhr.onerror = () => {
+        setUploadError("Error de conexión. ¿Estás en un entorno sin servidor?");
+        setUploadProgress(null);
+      };
+
+      xhr.open('POST', '/api/upload');
+      xhr.send(formData);
+
     } catch (err: any) {
       setUploadError(err.message);
       setUploadProgress(null);
@@ -447,25 +452,18 @@ export default function ArtistProfile({ artistId, currentUser, onPlay }: ArtistP
                   </button>
                 </div>
 
-                {/* Billing/Plan Guide */}
-                <div className="mt-8 p-4 bg-zinc-800/50 rounded-xl border border-zinc-700 space-y-3">
-                  <div className="flex items-center gap-2 text-zinc-300 font-bold text-xs uppercase">
-                    <AlertCircle size={14} className="text-yellow-500" />
-                    ¿Tienes error al subir? (Plan Error)
+                {/* Cloud Alert */}
+                <div className="mt-8 p-4 bg-blue-500/10 rounded-xl border border-blue-500/20 space-y-2">
+                  <div className="flex items-center gap-2 text-blue-400 font-bold text-[10px] uppercase tracking-wider">
+                    <Info size={14} />
+                    Modo "Un Solo Clic" Activado
                   </div>
-                  <p className="text-[10px] text-zinc-500 leading-normal">
-                    Firebase Storage es **Gratis (5GB)**, pero requiere activación manual. Si ves un error de "Plan" o "Billing":
+                  <p className="text-[10px] text-zinc-400 leading-normal">
+                    He configurado un servidor interno para que puedas subir música y portadas **aquí mismo** sin configurar nada. ¡Se acabó el lío de facturación de Firebase!
                   </p>
-                  <ol className="text-[10px] text-zinc-400 space-y-1 list-decimal ml-4">
-                    <li>Ve a la pestaña **Storage** en tu consola de Firebase.</li>
-                    <li>Haz clic en **"Empezar"** (Default Bucket).</li>
-                    <li>Elige el plan **Spark (Gratis)** si te lo pide.</li>
-                    <li>En **Rules**, pega: <code className="text-[9px] bg-black p-1 rounded">allow read, write: if request.auth != null;</code></li>
-                  </ol>
-                  <div className="flex items-center gap-1 text-[9px] text-green-500 font-medium">
-                    <Info size={10} />
-                    Esto habilitará las subidas directas en Vercel y Netlify.
-                  </div>
+                  <p className="text-[9px] text-zinc-500">
+                    * Nota: Si descargas esto fuera de este entorno, recuerda activar Firebase Storage.
+                  </p>
                 </div>
               </form>
             </div>
