@@ -35,21 +35,27 @@ async function startServer() {
 
   // API Route for audio upload
   app.post('/api/upload/audio', upload.single('audio'), (req, res) => {
+    console.log("Subida de audio recibida...");
     const file = (req as any).file;
     if (!file) {
+      console.error("Error: No se recibió archivo de audio");
       return res.status(400).json({ error: 'No se subió ningún archivo de audio' });
     }
     const fileUrl = `/uploads/${file.filename}`;
+    console.log("Audio guardado en:", fileUrl);
     res.json({ url: fileUrl });
   });
 
   // API Route for cover upload
   app.post('/api/upload/cover', upload.single('cover'), (req, res) => {
+    console.log("Subida de portada recibida...");
     const file = (req as any).file;
     if (!file) {
+      console.error("Error: No se recibió imagen");
       return res.status(400).json({ error: 'No se subió ninguna imagen' });
     }
     const fileUrl = `/uploads/${file.filename}`;
+    console.log("Portada guardada en:", fileUrl);
     res.json({ url: fileUrl });
   });
 

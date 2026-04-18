@@ -117,12 +117,21 @@ export default function ArtistProfile({ artistId, currentUser, onPlay }: ArtistP
             }
           });
 
-          xhr.onload = () => {
+          xhr.onload = async () => {
             if (xhr.status === 200) {
-              const response = JSON.parse(xhr.responseText);
-              resolve(response.url);
+              try {
+                const response = JSON.parse(xhr.responseText);
+                resolve(response.url);
+              } catch (e) {
+                reject(new Error("Error al procesar la respuesta del servidor"));
+              }
             } else {
-              reject(new Error(`Error al subir ${fieldName}`));
+              let errorMsg = `Error ${xhr.status}`;
+              try {
+                const res = JSON.parse(xhr.responseText);
+                errorMsg = res.error || errorMsg;
+              } catch(e) {}
+              reject(new Error(errorMsg));
             }
           };
 
