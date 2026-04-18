@@ -1,0 +1,80 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile for both listeners and musicians",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["listener", "artist", "band"] },
+        "bio": { "type": "string" },
+        "contactInfo": { "type": "string" },
+        "followersCount": { "type": "number" },
+        "monthlyListeners": { "type": "number" },
+        "isVerified": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "email", "role"]
+    },
+    "Song": {
+      "title": "Song",
+      "description": "Music tracks uploaded by artists",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "artistId": { "type": "string" },
+        "artistName": { "type": "string" },
+        "audioUrl": { "type": "string" },
+        "coverUrl": { "type": "string" },
+        "playsCount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "artistId", "audioUrl"]
+    },
+    "Post": {
+      "title": "Post",
+      "description": "Updates and teasers from musicians",
+      "type": "object",
+      "properties": {
+        "artistId": { "type": "string" },
+        "artistName": { "type": "string" },
+        "content": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["artistId", "content"]
+    },
+    "Follow": {
+      "title": "Follow",
+      "description": "Follow relationship between listener and musician",
+      "type": "object",
+      "properties": {
+        "listenerId": { "type": "string" },
+        "artistId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["listenerId", "artistId"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/songs/{songId}": {
+      "schema": "Song",
+      "description": "Music library"
+    },
+    "/posts/{postId}": {
+      "schema": "Post",
+      "description": "Artist feed"
+    },
+    "/follows/{followId}": {
+      "schema": "Follow",
+      "description": "Following graph"
+    }
+  }
+}

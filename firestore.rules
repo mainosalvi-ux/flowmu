@@ -1,0 +1,64 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helpers
+    function isSignedIn() { return request.auth != null; }
+    function isValidId(id) { return id is string && id.size() <= 128; }
+    function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
+
+    // User Rules
+    function isValidUser(data) {
+      return data.uid is string &&
+             data.displayName is string &&
+             data.displayName.size() <= 100 &&
+             data.email is string &&
+             data.role in ['listener', 'artist', 'band'];
+    }
+
+    function isAdmin() { return false; }
+
+    match /users/{uid} {
+      allow read: if true;
+      allow create: if isOwner(uid) && isValidUser(request.resource.data);
+      allow update: if isOwner(uid) && isValidUser(request.resource.data) && (
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL', 'bio', 'contactInfo', 'role'])
+      );
+    }
+
+    // Song Rules helpers
+    function isValidSong(data) {
+      return data.title is string &&
+             data.title.size() <= 100 &&
+             data.artistId == request.auth.uid &&
+             data.audioUrl is string;
+    }
+
+    match /songs/{songId} {
+      allow read: if true;
+      allow create: if isSignedIn() && isValidSong(request.resource.data);
+      allow update: if isSignedIn() && resource.data.artistId == request.auth.uid && (
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'coverUrl', 'playsCount'])
+      );
+      allow delete: if isSignedIn() && resource.data.artistId == request.auth.uid;
+    }
+
+    match /posts/{postId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.artistId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.artistId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.artistId == request.auth.uid;
+    }
+
+    // Follow Rules
+    match /follows/{followId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.listenerId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.listenerId == request.auth.uid;
+    }
+  }
+}
